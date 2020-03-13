@@ -55,14 +55,14 @@ const signup = async (req, res, next) => {
     const createdUser = new User({
         name,
         email,
-        image: req.file.path,
+        image: req.file.originalname,
         password: hashedPassword,
         trips: []
     });
 
     //Save to MongoDB using mongoose
     try {
-        createdUser.save();
+        await createdUser.save();
     } catch (err) {
         const error = new HttpError('Signup new user failed...', 500);
         return next(error);

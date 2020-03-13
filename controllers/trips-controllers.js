@@ -5,7 +5,12 @@ const getCoordinatesForAddress = require('../util/location');
 const Trip = require('../models/trip');
 const User = require('../models/user');
 const mongoose = require('mongoose');
-const fs = require('fs');
+// const fs = require('fs');
+const AWS = require("aws-sdk");
+const multer = require("multer");
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
 
 // Get trip by trip id
 const getTripById = async (req, res, next) => {
@@ -42,7 +47,7 @@ const getTripsByUserId = async (req, res, next) => {
 
 
     if (!trips || trips.length === 0) {
-        return next(new HttpError('Could not find trips matching user id...', 404));
+        return next(new HttpError('There are no trips for that username...', 404));
     }
 
     res.json({ trips: trips.map(trip => trip.toObject({ getters: true })) })
@@ -50,10 +55,10 @@ const getTripsByUserId = async (req, res, next) => {
 
 // Create a new trip
 const createTrip = async (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return next(new HttpError('Invalid inputs on required fields', 422))
-    }
+    // const errors = validationResult(req);
+    // if (!errors.isEmpty()) {
+    //     return next(new HttpError('Invalid inputs on required fields', 422))
+    // }
 
     const { title, description, address, weather, flies, date } = req.body;
 
@@ -72,7 +77,7 @@ const createTrip = async (req, res, next) => {
         date,
         address,
         location: coordinates,
-        image: req.file.path,
+        image: req.file.originalname,
         creator: req.userData.userId
     })
 
@@ -101,7 +106,6 @@ const createTrip = async (req, res, next) => {
         await session.commitTransaction();
     } catch (err) {
         const error = new HttpError('Creating trip failed...', 500);
-        // console.log(err)
         return next(error)
     }
 
@@ -116,7 +120,7 @@ const updateTrip = async (req, res, next) => {
         return next(new HttpError('Invalid inputs on required fields', 422))
     }
 
-    const { title, description } = req.body;
+    const { title, description, weather, flies } = req.body;
     const tripId = req.params.pid;
 
     let trip;
@@ -134,6 +138,8 @@ const updateTrip = async (req, res, next) => {
 
     trip.title = title;
     trip.description = description;
+    trip.weather = weather;
+    trip.flies = flies;
 
     try {
         await trip.save();
@@ -166,7 +172,6 @@ const deleteTrip = async (req, res, next) => {
         return next(error);
     }
 
-    const imagePath = trip.image;
 
     try {
         const session = await mongoose.startSession();
@@ -181,13 +186,31 @@ const deleteTrip = async (req, res, next) => {
         return next(error);
     }
 
-    // Remove the image from storage
-    fs.unlink(imagePath, (err) => {
-        console.log(err || 'Trip was deleted')
-    })
+    // Remove the image from AWS S3 bucket
+    let imagePath = trip.image
+
+    let s3bucket = new AWS.S3({
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        region: process.env.AWS_REGION
+    });
+
+    let params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: imagePath
+    };
+
+    await s3bucket.deleteObject(params, (err, data) => {
+        if (err) {
+            console.log(err);
+        } else {
+            res.status(200).json({ message: 'Trip deleted' });
+
+        }
+    });
 
 
-    res.status(200).json({ message: 'Trip deleted' });
+
 }
 
 exports.getTripById = getTripById;
